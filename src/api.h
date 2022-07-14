@@ -828,6 +828,8 @@ struct tic_mem
     tic_ram*             ram;
     tic_cartridge       cart;
 
+    u8*             full_ram;
+
     tic_ram*        base_ram;
 
     char saveid[TIC_SAVEID_SIZE];

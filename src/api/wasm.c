@@ -57,6 +57,8 @@ IM3Function MENU_function;
 #define FATAL(msg, ...) { printf("Error: [Fatal] " msg "\n", ##__VA_ARGS__); goto _onfatal; }
 #define WASM_STACK_SIZE 64*1024
 
+const tic_script_config WasmSyntaxConfig;
+
 static
 M3Result SuppressLookupFailure (M3Result i_result)
 {
@@ -1046,9 +1048,23 @@ static void closeWasm(tic_mem* tic)
         // for an entirely different VM.  This sequencing matters a lot
         // less if one assumes (like before) that all the VMs share a
         // common memory area.
+
+        s32 mmio_offset = 0;
+        IM3Runtime runtime = core->currentVM;
+        // runtime->modules is fine to use here because only one module is ever loaded.
+        IM3Global high_mmio_addr = m3_FindGlobal(runtime->modules, "__tic_high_mem");
+        if (high_mmio_addr)
+        {
+            bool high_mmio = m3_GetMemory(core->currentVM, NULL, 0)[high_mmio_addr->intValue] != 0;
+            if (high_mmio)
+            {
+                mmio_offset = TIC_WASM_PAGE_COUNT * 65536 - sizeof(tic_ram);
+            }
+        }
+
         u8* low_ram =  (u8*)core->memory.base_ram;
         u8* wasm_ram = m3_GetMemory(core->currentVM, NULL, 0);
-        memcpy(low_ram, wasm_ram, TIC_RAM_SIZE);
+        memcpy(low_ram, wasm_ram + mmio_offset, TIC_RAM_SIZE);
         deinitWasmRuntime(core->currentVM);
         core->currentVM = NULL;
         core->memory.ram = NULL;
@@ -1088,11 +1104,6 @@ static bool initWasm(tic_mem* tic, const char* code)
 
     runtime->memory.maxPages = TIC_WASM_PAGE_COUNT;
     ResizeMemory(runtime, TIC_WASM_PAGE_COUNT);
-
-    u8* low_ram =  (u8*)core->memory.ram;
-    u8* wasm_ram = m3_GetMemory(runtime, NULL, 0);
-    memcpy(wasm_ram, low_ram, TIC_RAM_SIZE);
-    core->memory.ram = (tic_ram*)wasm_ram;
 
     core->currentVM = runtime;
 
@@ -1147,6 +1158,25 @@ static bool initWasm(tic_mem* tic, const char* code)
         core->data->error(core->data->data, "Error: WASM must export a TIC function.");
         return false;
     }
+
+    // Set up memory pointers, based on WASM module's choice of layout.
+    s32 mmio_offset = 0;
+    IM3Global high_mmio_addr = m3_FindGlobal(module, "__tic_high_mem");
+     if (high_mmio_addr)
+        {
+            bool high_mmio = m3_GetMemory(core->currentVM, NULL, 0)[high_mmio_addr->intValue] != 0;
+            if (high_mmio)
+            {
+                mmio_offset = TIC_WASM_PAGE_COUNT * 65536 - sizeof(tic_ram);
+            }
+        }
+
+
+    u8* low_ram =  (u8*)core->memory.ram;
+    u8* wasm_ram = m3_GetMemory(runtime, NULL, 0);
+    memcpy(wasm_ram + mmio_offset, low_ram, TIC_RAM_SIZE);
+    core->memory.ram = (tic_ram*) (wasm_ram + mmio_offset);
+    core->memory.full_ram = wasm_ram;
 
     return true;
 }

@@ -390,6 +390,7 @@ static void tic_close_current_vm(tic_core* core)
     }
     if (core->memory.ram == NULL) {
         core->memory.ram = core->memory.base_ram;
+        core->memory.full_ram = (u8*) core->memory.base_ram;
     }
 }
 
